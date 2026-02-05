@@ -30,6 +30,10 @@ export class VirtualEngine {
   // Config
   private staticLayout: VflLayout | null = null;
 
+  // URL Sync
+  private lastBroadcastedUrl: string = "";
+  private urlSyncCleanup: (() => void) | null = null;
+
   constructor(windowId: string, initialRect: Rect) {
     this.staticLayout = getStaticLayoutFromUrl();
 
@@ -113,6 +117,87 @@ export class VirtualEngine {
 
     this.networkSystem.publishSelf();
     console.log(`[VirtualEngine] Started ${windowId} in session ${this.sessionId}`);
+
+    // Start URL Sync Monitoring
+    this.setupUrlSync(windowId);
+  }
+
+  // ==========================================
+  // URL Synchronisation
+  // ==========================================
+
+  /**
+   * @brief Returns the current URL without the session-critical "layout" param.
+   * This is the portion of the URL that should be synchronised across peers.
+   */
+  private getComparableUrl(): string {
+    const url = new URL(window.location.href);
+    // Strip the layout param – it's per-device and must not be overwritten
+    url.searchParams.delete("layout");
+    return url.pathname + url.search + url.hash;
+  }
+
+  /**
+   * @brief Broadcasts the current URL to all peers in the session.
+   */
+  private broadcastUrl(windowId: string) {
+    if ((window as unknown as Record<string, unknown>).__vwin_suppress_url_broadcast) return;
+    const comparable = this.getComparableUrl();
+    if (comparable === this.lastBroadcastedUrl) return; // no real change
+    this.lastBroadcastedUrl = comparable;
+
+    this.network?.broadcast({
+      type: "URL_SYNC",
+      payload: { senderId: windowId, url: window.location.href },
+    });
+  }
+
+  /**
+   * @brief Installs listeners for URL changes (popstate + history API monkey-patching).
+   */
+  private setupUrlSync(windowId: string) {
+    if (typeof window === "undefined") return;
+
+    this.lastBroadcastedUrl = this.getComparableUrl();
+
+    // 1. Listen for browser back/forward navigation
+    const onPopState = () => this.broadcastUrl(windowId);
+
+    // 2. Monkey-patch pushState / replaceState to detect programmatic navigation
+    const origPushState = history.pushState.bind(history);
+    const origReplaceState = history.replaceState.bind(history);
+
+    const self = this;
+
+    history.pushState = function (...args: Parameters<typeof origPushState>) {
+      origPushState(...args);
+      self.broadcastUrl(windowId);
+    };
+
+    history.replaceState = function (...args: Parameters<typeof origReplaceState>) {
+      origReplaceState(...args);
+      // Only broadcast if NOT suppressed (i.e. not an incoming sync)
+      if (!(window as unknown as Record<string, unknown>).__vwin_suppress_url_broadcast) {
+        self.broadcastUrl(windowId);
+      }
+    };
+
+    // 3. Listen for incoming URL syncs to suppress echo broadcasts
+    const onUrlSync = () => {
+      // Incoming URL was applied via replaceState in EngineNetwork.
+      // suppressUrlBroadcast is set there. Nothing else to do here.
+    };
+
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("__vwin_url_sync", onUrlSync);
+
+    this.urlSyncCleanup = () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("__vwin_url_sync", onUrlSync);
+      // Restore original history methods
+      history.pushState = origPushState;
+      history.replaceState = origReplaceState;
+    };
   }
 
   /**
@@ -172,6 +257,11 @@ export class VirtualEngine {
     if (this.cleanupTimer !== null) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
+    }
+    // Clean up URL sync listeners & restored history methods
+    if (this.urlSyncCleanup) {
+      this.urlSyncCleanup();
+      this.urlSyncCleanup = null;
     }
     if (this.network) {
       try {

@@ -93,6 +93,25 @@ export class EngineNetwork {
         this.store.set({ isLeader: false });
         break;
       }
+      case "URL_SYNC": {
+        const { senderId, url } = event.payload;
+        if (senderId === windowId) return; // Ignore own URL changes
+        // Apply the URL change locally without triggering another broadcast
+        const targetUrl = new URL(url, window.location.origin);
+        // Preserve session-critical params (layout) but adopt the new path & other params
+        const currentLayout = new URL(window.location.href).searchParams.get("layout");
+        if (currentLayout) {
+          targetUrl.searchParams.set("layout", currentLayout);
+        }
+        // Set suppress flag to prevent the monkey-patched replaceState from re-broadcasting
+        (window as unknown as Record<string, unknown>).__vwin_suppress_url_broadcast = true;
+        // Use replaceState to avoid infinite loops and keep session stable
+        window.history.replaceState(null, "", targetUrl.toString());
+        (window as unknown as Record<string, unknown>).__vwin_suppress_url_broadcast = false;
+        // Dispatch a custom event so React routers / components can react
+        window.dispatchEvent(new CustomEvent("__vwin_url_sync", { detail: { url: targetUrl.toString() } }));
+        break;
+      }
     }
   }
 

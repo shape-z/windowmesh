@@ -43,7 +43,8 @@ export type VirtualEvent =
   | { type: 'LAYOUT_UPDATE'; payload: VflLayout }
   | { type: 'LEADER_CLAIM'; payload: { id: string, timestamp: number } }
   | { type: 'SHARED_DATA_UPDATE'; payload: { key: string, value: unknown } }
-  | { type: 'REQUEST_LAYOUT'; payload: { id: string } };
+  | { type: 'REQUEST_LAYOUT'; payload: { id: string } }
+  | { type: 'URL_SYNC'; payload: { senderId: string; url: string } };
 
 export type VirtualContext = VirtualState & {
   // Method Dispatches
