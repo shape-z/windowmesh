@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useEffect, useState, useContext, useMemo } from 'react';
 import { VirtualCtx } from '@/lib/virtual/extensions/virtualContext';
 
@@ -123,7 +124,18 @@ function AnimatedBackground() {
 }
 
 export default function Page() {
-  const demos = ['bubbles', 'game-of-life'];
+  const demos = useMemo(() => ['bubbles', 'game-of-life'], []);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('random-subpage') === 'true' && demos.length > 0) {
+      const randomIndex = Math.floor(Math.random() * demos.length);
+      const targetDemo = demos[randomIndex];
+      const params = searchParams.toString();
+      router.replace(`/demos/${targetDemo}${params ? `?${params}` : ''}`);
+    }
+  }, [demos, router, searchParams]);
 
   return (
     <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
@@ -137,15 +149,18 @@ export default function Page() {
         </div>
         <div className="space-y-4 pt-4 px-6 pb-6">
           {demos.length > 0 ? (
-            demos.map((demo) => (
-              <Link
-                key={demo}
-                href={`/demos/${demo}`}
-                className="flex items-center justify-center w-full h-12 text-base bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium capitalize transition-colors"
-              >
-                {demo.replace(/-/g, ' ')}
-              </Link>
-            ))
+            demos.map((demo) => {
+              const params = searchParams.toString();
+              return (
+                <Link
+                  key={demo}
+                  href={`/demos/${demo}${params ? `?${params}` : ''}`}
+                  className="flex items-center justify-center w-full h-12 text-base bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium capitalize transition-colors"
+                >
+                  {demo.replace(/-/g, ' ')}
+                </Link>
+              );
+            })
           ) : (
              <div className="text-center text-gray-500 py-4">No demos found.</div>
           )}
